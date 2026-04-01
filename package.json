@@ -17,8 +17,8 @@
   },
   "scripts": {
     "build": "bun build src/entrypoints/cli.tsx --outdir ./dist --target node --sourcemap",
-    "start": "bun dist/cli.js",
-    "smoke": "node ./dist/cli.js --version"
+    "dev": "bun ./dist/cli.js",
+    "version": "bun ./dist/cli.js --version"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
