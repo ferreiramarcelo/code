@@ -27,6 +27,40 @@ function buildCandidates(relativePaths) {
   return candidates
 }
 
+function isMuslLinux() {
+  if (process.platform !== 'linux') {
+    return false
+  }
+
+  try {
+    const detectLibc = require('detect-libc')
+    if (typeof detectLibc.isNonGlibcLinuxSync === 'function') {
+      return Boolean(detectLibc.isNonGlibcLinuxSync())
+    }
+    if (typeof detectLibc.familySync === 'function') {
+      return detectLibc.familySync() === detectLibc.MUSL
+    }
+  } catch {
+    // detect-libc 不可用时按 glibc 处理。
+  }
+
+  return false
+}
+
+function getPlatformDirs(platform) {
+  const baseDir = `${process.arch}-${platform}`
+  if (platform !== 'linux') {
+    return [baseDir]
+  }
+
+  const dirs = []
+  if (isMuslLinux()) {
+    dirs.push(`${process.arch}-linux-musl`)
+  }
+  dirs.push(baseDir)
+  return dirs
+}
+
 function loadModule() {
   if (loadAttempted) {
     return cachedModule
@@ -48,13 +82,14 @@ function loadModule() {
     }
   }
 
-  const platformDir = `${process.arch}-${platform}`
-  const candidates = buildCandidates([
-    `vendor/audio-capture/${platformDir}/audio-capture.node`,
-    `../vendor/audio-capture/${platformDir}/audio-capture.node`,
-    `../../vendor/audio-capture/${platformDir}/audio-capture.node`,
-    `../../../vendor/audio-capture/${platformDir}/audio-capture.node`,
-  ])
+  const candidates = buildCandidates(
+    getPlatformDirs(platform).flatMap(platformDir => [
+      `vendor/audio-capture/${platformDir}/audio-capture.node`,
+      `../vendor/audio-capture/${platformDir}/audio-capture.node`,
+      `../../vendor/audio-capture/${platformDir}/audio-capture.node`,
+      `../../../vendor/audio-capture/${platformDir}/audio-capture.node`,
+    ]),
+  )
 
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {

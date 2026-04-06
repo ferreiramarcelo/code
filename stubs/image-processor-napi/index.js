@@ -30,6 +30,40 @@ function buildCandidates(relativePaths) {
   return candidates
 }
 
+function isMuslLinux() {
+  if (process.platform !== 'linux') {
+    return false
+  }
+
+  try {
+    const detectLibc = require('detect-libc')
+    if (typeof detectLibc.isNonGlibcLinuxSync === 'function') {
+      return Boolean(detectLibc.isNonGlibcLinuxSync())
+    }
+    if (typeof detectLibc.familySync === 'function') {
+      return detectLibc.familySync() === detectLibc.MUSL
+    }
+  } catch {
+    // detect-libc 不可用时按 glibc 处理。
+  }
+
+  return false
+}
+
+function getPlatformDirs() {
+  const baseDir = `${process.arch}-${process.platform}`
+  if (process.platform !== 'linux') {
+    return [baseDir]
+  }
+
+  const dirs = []
+  if (isMuslLinux()) {
+    dirs.push(`${process.arch}-linux-musl`)
+  }
+  dirs.push(baseDir)
+  return dirs
+}
+
 export function getNativeModule() {
   if (loadAttempted) {
     return cachedModule
@@ -46,13 +80,14 @@ export function getNativeModule() {
     }
   }
 
-  const platformDir = `${process.arch}-${process.platform}`
-  const candidates = buildCandidates([
-    `vendor/image-processor/${platformDir}/image-processor.node`,
-    `../vendor/image-processor/${platformDir}/image-processor.node`,
-    `../../vendor/image-processor/${platformDir}/image-processor.node`,
-    `../../../vendor/image-processor/${platformDir}/image-processor.node`,
-  ])
+  const candidates = buildCandidates(
+    getPlatformDirs().flatMap(platformDir => [
+      `vendor/image-processor/${platformDir}/image-processor.node`,
+      `../vendor/image-processor/${platformDir}/image-processor.node`,
+      `../../vendor/image-processor/${platformDir}/image-processor.node`,
+      `../../../vendor/image-processor/${platformDir}/image-processor.node`,
+    ]),
+  )
 
   for (const candidate of candidates) {
     if (!existsSync(candidate)) {

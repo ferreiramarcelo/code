@@ -62,6 +62,8 @@ async function main() {
       referenceSha256: reference.sha256,
       architecture: bestMatch.candidate.architecture,
       platform: bestMatch.candidate.platform,
+      libc: bestMatch.candidate.libc,
+      referenceLibc: reference.targetInfo.libc,
       assetHint: bestMatch.candidate.decoratedAssetHint,
       candidateExactLength: bestMatch.candidate.exactLength,
       candidateOverlayLength: bestMatch.candidate.overlayLength,
@@ -80,6 +82,7 @@ async function main() {
       sha256: candidate.sha256,
       architecture: candidate.architecture,
       platform: candidate.platform,
+      libc: candidate.libc,
       assetHint: candidate.decoratedAssetHint,
       exactLength: candidate.exactLength,
       overlayLength: candidate.overlayLength,
@@ -225,6 +228,7 @@ async function collectCandidates(report) {
         bytes,
         architecture: embedded.architecture ?? null,
         platform: embedded.platformGuess ?? null,
+        libc: inferLibcVariantFromPath(file.path),
         assetHint: embedded.assetHint ?? null,
         decoratedAssetHint: embedded.decoratedAssetHint ?? null,
         exactLength: exactInfo?.spanLength ?? null,
@@ -287,6 +291,13 @@ function matchCandidateToReference(reference, candidate) {
       score -= 200
     }
   }
+  if (reference.targetInfo.libc && candidate.libc) {
+    if (reference.targetInfo.libc === candidate.libc) {
+      score += 80
+    } else {
+      return null
+    }
+  }
 
   if (reference.size === candidate.size) {
     score += 60
@@ -305,32 +316,13 @@ function matchCandidateToReference(reference, candidate) {
   ) {
     score += 10
   }
-  if (normalizePath(candidate.containerPath).includes('-musl')) {
-    score -= 20
-  }
   if (reference.targetInfo.architecture && reference.targetInfo.platform) {
     const normalizedContainerPath = normalizePath(candidate.containerPath).toLowerCase()
-    const expectedContainerSegment =
-      `${reference.targetInfo.platform}-${reference.targetInfo.architecture}/claude`
+    const expectedContainerSegment = buildExpectedContainerSegment(
+      reference.targetInfo,
+    )
     if (normalizedContainerPath.includes(expectedContainerSegment)) {
       score += 15
-    }
-  }
-
-  if (
-    reference.relativePath.includes(`${sep}x64-linux`) ||
-    reference.relativePath.includes('/x64-linux')
-  ) {
-    if (!normalizePath(candidate.containerPath).includes('linux-x64/claude')) {
-      score -= 10
-    }
-  }
-  if (
-    reference.relativePath.includes(`${sep}arm64-linux`) ||
-    reference.relativePath.includes('/arm64-linux')
-  ) {
-    if (!normalizePath(candidate.containerPath).includes('linux-arm64/claude')) {
-      score -= 10
     }
   }
 
@@ -358,12 +350,39 @@ function buildStageNotes(match) {
 
 function inferTargetInfoFromPath(filePath) {
   const normalized = normalizePath(filePath).toLowerCase()
-  const platformMatch = normalized.match(/\/(arm64|x64|arm|x86)-(darwin|linux|win32)\//)
+  const platformMatch = normalized.match(
+    /\/(arm64|x64|arm|x86)-(darwin|linux|win32)(-musl)?\//,
+  )
   return {
     architecture: platformMatch?.[1] ?? null,
     platform: platformMatch?.[2] ?? null,
+    libc:
+      platformMatch?.[2] === 'linux'
+        ? platformMatch?.[3]
+          ? 'musl'
+          : 'glibc'
+        : null,
     assetName: normalizeAssetName(basename(filePath)),
   }
+}
+
+function inferLibcVariantFromPath(filePath) {
+  const normalized = normalizePath(filePath).toLowerCase()
+  if (!normalized.includes('linux')) {
+    return null
+  }
+  return normalized.includes('-musl') ? 'musl' : 'glibc'
+}
+
+function buildExpectedContainerSegment(targetInfo) {
+  if (!targetInfo?.platform || !targetInfo?.architecture) {
+    return ''
+  }
+  if (targetInfo.platform === 'linux') {
+    const libcSuffix = targetInfo.libc === 'musl' ? '-musl' : ''
+    return `${targetInfo.platform}-${targetInfo.architecture}${libcSuffix}/claude`
+  }
+  return `${targetInfo.platform}-${targetInfo.architecture}/claude`
 }
 
 function normalizeAssetName(value) {
